@@ -2,58 +2,107 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ввод в оборот молока</title>
+    <title>Молочное производство</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        label { font-weight: bold; display: block; margin-top: 15px; }
+        input, textarea { width: 100%; padding: 8px; margin-top: 5px; }
+        button { margin-top: 10px; padding: 10px 20px; }
+        .field { margin-bottom: 15px; }
+        .data-field { background: #f0f0f0; padding: 8px; border-radius: 4px; }
+    </style>
 </head>
 <body>
     <h1>Ввод в оборот молока</h1>
 
-    <!-- Форма загрузки JSON -->
-    <form action="/process_json" method="post" enctype="multipart/form-data">
-        <label for="json_file">Загрузите JSON файл:</label>
-        <input type="file" name="json_file" id="json_file" required>
+    <form method="POST" action="/" enctype="multipart/form-data">
+        <label>Загрузите JSON файл:</label>
+        <input type="file" name="json_file" required>
         <button type="submit">Загрузить</button>
     </form>
 
-    {% if result %}
+    {% if data %}
     <hr>
-    <h2>Данные из JSON:</h2>
-    <ul>
-        <li>Producer INN: {{ result.producer_inn }}</li>
-        <li>Owner INN: {{ result.owner_inn }}</li>
-        <li>Production Date: {{ result.production_date }}</li>
-        <li>Production Order: {{ result.production_order }}</li>
-        <li>Certificate Number: {{ result.certificate_number }}</li>
-        <li>Certificate Date: {{ result.certificate_date }}</li>
-        <li>VSD Number: {{ result.vsd_number }}</li>
-        <li>TNVED Code: {{ result.tnved_code }}</li>
-    </ul>
+    <h2>Распарсенные данные:</h2>
 
-   <form id="codesForm" method="post">
-    <label for="filename">Имя файла:</label>
-    <input type="text" name="filename" id="filename" required placeholder="Введите имя файла">
-    <br><br>
+    <div class="field">
+        <label>Producer INN:</label>
+        <div class="data-field">{{ data.producer_inn }}</div>
+    </div>
 
-    <label for="codes">Введите коды:</label>
-    <textarea name="codes" id="codes" rows="8"></textarea>
+    <div class="field">
+        <label>Owner INN:</label>
+        <div class="data-field">{{ data.owner_inn }}</div>
+    </div>
 
-    <!-- Скрытые поля для передачи данных -->
-    <input type="hidden" name="producer_inn" value="{{ result.producer_inn }}">
-    <input type="hidden" name="owner_inn" value="{{ result.owner_inn }}">
-    <input type="hidden" name="production_date" value="{{ result.production_date }}">
-    <input type="hidden" name="production_order" value="{{ result.production_order }}">
-    <input type="hidden" name="certificate_number" value="{{ result.certificate_number }}">
-    <input type="hidden" name="certificate_date" value="{{ result.certificate_date }}">
-    <input type="hidden" name="tnved_code" value="{{ result.tnved_code }}">
-    <input type="hidden" name="vsd_number" value="{{ result.vsd_number }}">
-    <input type="hidden" name="production_order_type" value="{{ result.production_order_type }}">
+    <div class="field">
+        <label>Production Date:</label>
+        <div class="data-field">{{ data.production_date }}</div>
+    </div>
 
-    <br><br>
-    <button formaction="/generate_csv" formmethod="post">Сгенерировать CSV</button>
-    <button formaction="/generate_xml" formmethod="post">Сгенерировать XML</button>
-</form>
+    <div class="field">
+        <label>Production Type:</label>
+        <div class="data-field">{{ data.production_type }}</div>
+    </div>
 
+    <div class="field">
+        <label>TNVED Code (первого продукта, если есть):</label>
+        <div class="data-field">
+            {% if data.products %}
+                {{ data.products[0].tnved_code }}
+            {% else %}
+                Не найдено
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="field">
+        <label>Certificate Number (первого продукта, если есть):</label>
+        <div class="data-field">
+            {% if data.products %}
+                {{ data.products[0].certificate_number }}
+            {% else %}
+                Не найдено
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="field">
+        <label>Certificate Date (первого продукта, если есть):</label>
+        <div class="data-field">
+            {% if data.products %}
+                {{ data.products[0].certificate_date }}
+            {% else %}
+                Не найдено
+            {% endif %}
+        </div>
+    </div>
+
+    <hr>
+    <h2>Введите коды</h2>
+    <form method="POST" action="/download_csv">
+        <div class="field">
+            <label>Имя файла (без расширения):</label>
+            <input type="text" name="filename" value="codes" required>
+        </div>
+
+        <div class="field">
+            <label>Коды (по одному на строке, с <GS> если нужно):</label>
+            <textarea name="codes" rows="10"></textarea>
+        </div>
+
+        <button type="submit">Скачать CSV</button>
+    </form>
+
+    <form method="POST" action="/download_xml">
+        <input type="hidden" name="codes" value="">
+        <input type="hidden" name="filename" value="">
+        <button type="submit" onclick="
+            this.form.codes.value = document.querySelector('textarea[name=codes]').value;
+            this.form.filename.value = document.querySelector('input[name=filename]').value;
+        ">Скачать XML</button>
+    </form>
     {% endif %}
 </body>
 </html>

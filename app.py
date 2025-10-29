@@ -131,18 +131,34 @@ def generate_xml(data, codes):
 def index():
     json_path = session.get('json_path')
     data = {}
-    if json_path and os.path.exists(json_path):
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = parse_json(f.read())
 
+    # Если уже был загружен файл, пробуем его распарсить
+    if json_path and os.path.exists(json_path):
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = parse_json(f.read())
+        except Exception as e:
+            data = {}
+            print(f"Ошибка при чтении ранее загруженного JSON: {e}")
+
+    # Обработка нового загруженного файла
     if request.method == 'POST' and 'json_file' in request.files:
         file = request.files['json_file']
         content = file.read()
-        f = tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w', encoding='utf-8')
-        f.write(content.decode('utf-8') if isinstance(content, bytes) else content)
-        f.close()
-        session['json_path'] = f.name
-        return redirect(url_for('index'))
+        try:
+            # Пробуем сразу распарсить JSON
+            parsed = parse_json(content.decode('utf-8') if isinstance(content, bytes) else content)
+
+            # Сохраняем временный файл
+            f = tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w', encoding='utf-8')
+            f.write(content.decode('utf-8') if isinstance(content, bytes) else content)
+            f.close()
+            session['json_path'] = f.name
+
+            return redirect(url_for('index'))
+        except Exception as e:
+            print(f"Ошибка при парсинге JSON: {e}")
+            return render_template('index.html', data={}, error="Неверный формат JSON файла")
 
     return render_template('index.html', data=data)
 

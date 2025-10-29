@@ -1,90 +1,68 @@
-from flask import Flask, render_template, request, send_file, session, redirect, url_for
-import json
-from io import BytesIO
-from xml.dom.minidom import Document
-import html
-import tempfile
 import os
+import json
+import tempfile
+from io import BytesIO
+from flask import Flask, render_template, request, redirect, url_for, session, send_file
 
 app = Flask(__name__)
-app.secret_key = 'your_random_secret_key_123'  # обязательно для сессии
+app.secret_key = os.urandom(24)  # безопасный ключ для сессии
 
 
-# =========================
-# Парсер JSON
-# =========================
 def parse_json(file_content):
-    data = json.loads(file_content)
+    """Парсим JSON, обрабатывая разные форматы структуры"""
+    try:
+        data = json.loads(file_content)
+    except Exception:
+        return {}
 
-    producer_inn = data.get('producer_inn') or data.get('participant_inn')
-    owner_inn = data.get('owner_inn') or data.get('participant_inn')
-    production_date = data.get('production_date', '')
-    production_type = data.get('production_type', '')
-
-    if producer_inn == owner_inn:
-        production_type = 'OWN_PRODUCTION'
-    else:
-        production_type = 'CONTRACT_PRODUCTION'
-
-    products_raw = data.get('products', []) or data.get('products_list', [])
-    products = []
-    for p in products_raw:
-        uit = html.escape(p.get('uit_code') or p.get('uit', ''))
-        vsd_number = p.get('vsd_number', '')
-        tnved_code = p.get('tnved_code', '')
-        cert = p.get('certificate_document_data', [{}])[0]
-        certificate_number = html.escape(cert.get('certificate_number', ''))
-        certificate_date = cert.get('certificate_date', '')
-        products.append({
-            'uit': uit,
-            'vsd_number': vsd_number,
-            'tnved_code': tnved_code,
-            'certificate_number': certificate_number,
-            'certificate_date': certificate_date
-        })
-
-    return {
-        'producer_inn': producer_inn,
-        'owner_inn': owner_inn,
-        'production_date': production_date,
-        'production_type': production_type,
-        'products': products
+    # Определяем поля
+    result = {
+        'producer_inn': data.get('producer_inn') or data.get('participant_inn'),
+        'owner_inn': data.get('owner_inn') or data.get('producer_inn'),
+        'production_date': data.get('production_date', ''),
+        'production_type': data.get('production_type', ''),
+        'products': []
     }
 
+    # Если все INN одинаковы и production_type не указан — считаем OWN_PRODUCTION
+    if not result['production_type']:
+        if result['producer_inn'] == result['owner_inn']:
+            result['production_type'] = 'OWN_PRODUCTION'
+        else:
+            result['production_type'] = 'CONTRACT_PRODUCTION'
 
-# =========================
-# Генерация CSV
-# =========================
-def generate_csv(codes):
-    output = BytesIO()
-    # убираем пробелы в начале/конце каждой строки
-    codes_clean = [line.strip() for line in codes if line.strip()]
-    text = '\n'.join(codes_clean).replace('<GS>', '\x1d')
-    output.write(text.encode('utf-8'))
-    output.seek(0)
-    return output
+    # Продукты
+    products = data.get('products_list') or data.get('products') or []
+    for p in products:
+        product = {
+            'uit_code': p.get('uit') or p.get('uit_code', ''),
+            'tnved_code': p.get('tnved_code', ''),
+            'production_date': p.get('production_date', ''),
+            'certificate_number': '',
+            'certificate_date': '',
+            'vsd_number': p.get('vsd_number', '')
+        }
+        certs = p.get('certificate_document_data', [])
+        if certs:
+            c = certs[0]
+            product['certificate_number'] = c.get('certificate_number', '')
+            product['certificate_date'] = c.get('certificate_date', '')
+        result['products'].append(product)
+    return result
 
 
-# =========================
-# Генерация XML
-# =========================
 def generate_xml(data, codes):
-    """
-    Генерация XML вручную с разной шапкой для CONTRACT и OWN производства
-    """
+    """Генерация XML с разными шапками для контрактного/собственного производства"""
     lines = []
-
     codes_clean = [line.strip() for line in codes if line.strip()]
 
     if data['production_type'] == 'CONTRACT_PRODUCTION':
-        # Шапка контрактного производства
         lines.append(f'<introduce_contract version="7">')
         lines.append(f'    <producer_inn>{data["producer_inn"]}</producer_inn>')
         lines.append(f'    <owner_inn>{data["owner_inn"]}</owner_inn>')
         lines.append(f'    <production_date>{data["production_date"]}</production_date>')
         lines.append(f'    <production_order>{data["production_type"]}</production_order>')
     else:
-        # Шапка собственного производства
         lines.append(f'<introduce_rf version="9">')
         lines.append(f'    <trade_participant_inn>{data["producer_inn"]}</trade_participant_inn>')
         lines.append(f'    <producer_inn>{data["producer_inn"]}</producer_inn>')
@@ -94,7 +72,6 @@ def generate_xml(data, codes):
 
     lines.append('    <products_list>')
 
-    # Берем первый продукт для заполнения полей
     p = data['products'][0] if data['products'] else {}
 
     for code in codes_clean:
@@ -110,94 +87,81 @@ def generate_xml(data, codes):
         lines.append('        </product>')
 
     lines.append('    </products_list>')
-
-    # Закрывающий тег
-    if data['production_type'] == 'CONTRACT_PRODUCTION':
-        lines.append('</introduce_contract>')
-    else:
-        lines.append('</introduce_rf>')
+    lines.append('</introduce_contract>' if data['production_type']=='CONTRACT_PRODUCTION' else '</introduce_rf>')
 
     xml_text = "\n".join(lines)
     return BytesIO(xml_text.encode('utf-8'))
 
 
-
-
-
-# =========================
-# Flask routes
-# =========================
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    json_path = session.get('json_path')
     data = {}
+    error = None
+    json_path = session.get('json_path')
 
-    # Если уже был загружен файл, пробуем его распарсить
+    # Чтение ранее загруженного файла
     if json_path and os.path.exists(json_path):
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = parse_json(f.read())
         except Exception as e:
+            print(f"Ошибка чтения JSON: {e}")
             data = {}
-            print(f"Ошибка при чтении ранее загруженного JSON: {e}")
 
-    # Обработка нового загруженного файла
+    # Загрузка нового файла
     if request.method == 'POST' and 'json_file' in request.files:
         file = request.files['json_file']
         content = file.read()
         try:
-            # Пробуем сразу распарсить JSON
-            parsed = parse_json(content.decode('utf-8') if isinstance(content, bytes) else content)
+            file_content = content
+            if isinstance(file_content, bytes):
+                file_content = file_content.decode('utf-8')
 
-            # Сохраняем временный файл
+            parsed = parse_json(file_content)
+
             f = tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w', encoding='utf-8')
-            f.write(content.decode('utf-8') if isinstance(content, bytes) else content)
+            f.write(file_content)
             f.close()
             session['json_path'] = f.name
-
             return redirect(url_for('index'))
         except Exception as e:
             print(f"Ошибка при парсинге JSON: {e}")
-            return render_template('index.html', data={}, error="Неверный формат JSON файла")
+            error = "Неверный формат JSON файла"
 
-    return render_template('index.html', data=data)
+    return render_template('index.html', data=data, error=error)
 
 
 @app.route('/download_csv', methods=['POST'])
 def download_csv():
     codes_text = request.form.get('codes', '')
-    filename = request.form.get('filename', 'codes') + '.csv'
-    codes = [line.strip() for line in codes_text.splitlines() if line.strip()]
-    csv_file = generate_csv(codes)
-    return send_file(csv_file, mimetype='text/csv', as_attachment=True, download_name=filename)
+    file_name = request.form.get('file_name', 'codes')
+    codes_clean = [line.strip() for line in codes_text.splitlines() if line.strip()]
+    csv_content = "\n".join([c.replace('<GS>', '\x1D') for c in codes_clean])
+    return send_file(BytesIO(csv_content.encode('utf-8')), mimetype='text/csv',
+                     as_attachment=True, download_name=f"{file_name}.csv")
 
 
 @app.route('/download_xml', methods=['POST'])
 def download_xml():
     codes_text = request.form.get('codes', '')
-    filename = request.form.get('filename', 'codes') + '.xml'
-    codes = [line.strip() for line in codes_text.splitlines() if line.strip()]
+    codes_clean = [line.strip() for line in codes_text.splitlines() if line.strip()]
+    file_name = request.form.get('file_name', 'file')
 
-    # Читаем JSON с диска
     json_path = session.get('json_path')
     if json_path and os.path.exists(json_path):
         with open(json_path, 'r', encoding='utf-8') as f:
-            data = parse_json(f.read())
+            try:
+                data = parse_json(f.read())
+            except Exception as e:
+                print(f"Ошибка парсинга JSON для XML: {e}")
+                data = {}
     else:
         data = {}
 
-    xml_file = generate_xml(data, codes)
-
-    # Удаляем временный файл после генерации XML
-    if json_path and os.path.exists(json_path):
-        os.unlink(json_path)
-        session.pop('json_path', None)
-
-    return send_file(xml_file, mimetype='application/xml', as_attachment=True, download_name=filename)
+    xml_bytes = generate_xml(data, codes_clean)
+    return send_file(xml_bytes, mimetype='application/xml', as_attachment=True, download_name=f"{file_name}.xml")
 
 
-if __name__ == '__main__':
-    import os
-
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host="0.0.0.0", port=port)

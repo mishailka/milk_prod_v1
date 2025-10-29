@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ввод в оборот молока</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Ввод в оборот молока</h1>
+
+    <!-- Форма загрузки JSON -->
+    <form action="/process_json" method="post" enctype="multipart/form-data">
+        <label for="json_file">Загрузите JSON файл:</label>
+        <input type="file" name="json_file" id="json_file" required>
+        <button type="submit">Загрузить</button>
+    </form>
+
+    {% if result %}
+    <hr>
+    <h2>Данные из JSON:</h2>
+    <ul>
+        <li>Producer INN: {{ result.producer_inn }}</li>
+        <li>Owner INN: {{ result.owner_inn }}</li>
+        <li>Production Date: {{ result.production_date }}</li>
+        <li>Production Order: {{ result.production_order }}</li>
+        <li>Certificate Number: {{ result.certificate_number }}</li>
+        <li>Certificate Date: {{ result.certificate_date }}</li>
+        <li>VSD Number: {{ result.vsd_number }}</li>
+        <li>TNVED Code: {{ result.tnved_code }}</li>
+    </ul>
+
+   <form id="codesForm" method="post">
+    <label for="filename">Имя файла:</label>
+    <input type="text" name="filename" id="filename" required placeholder="Введите имя файла">
+    <br><br>
+
+    <label for="codes">Введите коды:</label>
+    <textarea name="codes" id="codes" rows="8"></textarea>
+
+    <!-- Скрытые поля для передачи данных -->
+    <input type="hidden" name="producer_inn" value="{{ result.producer_inn }}">
+    <input type="hidden" name="owner_inn" value="{{ result.owner_inn }}">
+    <input type="hidden" name="production_date" value="{{ result.production_date }}">
+    <input type="hidden" name="production_order" value="{{ result.production_order }}">
+    <input type="hidden" name="certificate_number" value="{{ result.certificate_number }}">
+    <input type="hidden" name="certificate_date" value="{{ result.certificate_date }}">
+    <input type="hidden" name="tnved_code" value="{{ result.tnved_code }}">
+    <input type="hidden" name="vsd_number" value="{{ result.vsd_number }}">
+    <input type="hidden" name="production_order_type" value="{{ result.production_order_type }}">
+
+    <br><br>
+    <button formaction="/generate_csv" formmethod="post">Сгенерировать CSV</button>
+    <button formaction="/generate_xml" formmethod="post">Сгенерировать XML</button>
+</form>
+
+    {% endif %}
+</body>
+</html>

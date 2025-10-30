@@ -1,0 +1,10 @@
+{
+  "SOTEX": {
+    "dev": "http://sotex.prod.dev-og.com",
+    "test": "пока не завел"
+  },
+  "RAPFARMA": {
+    "dev": "http://rapharma-lipetsk.prod.dev-og.com",
+    "test": "пока не завел"
+  }
+}

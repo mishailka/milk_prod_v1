@@ -1,108 +1,177 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Молочное производство</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        body { font-family: Arial, sans-serif; margin: 30px; }
-        label { font-weight: bold; display: block; margin-top: 15px; }
-        input, textarea { width: 100%; padding: 8px; margin-top: 5px; }
-        button { margin-top: 10px; padding: 10px 20px; }
-        .field { margin-bottom: 15px; }
-        .data-field { background: #f0f0f0; padding: 8px; border-radius: 4px; }
-    </style>
+<meta charset="UTF-8">
+<title>Производственный сервис</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  body{font-family:Arial,sans-serif;margin:30px;}
+  .tabs{display:flex;gap:8px;margin-bottom:12px;}
+  .tabs button{padding:8px 14px;border:1px solid #ccc;background:#f7f7f7;cursor:pointer}
+  .tabs button.active{background:#4CAF50;color:#fff;border-color:#4CAF50}
+  .tab{display:none}.tab.active{display:block}
+  .msg{padding:8px;margin:10px 0;border-radius:6px;background:#e7f6ec;border:1px solid #b7e1c4}
+  .msg.err{background:#fdecea;border-color:#f5c2c0}
+  .logs{background:#111;color:#ddd;padding:10px;border-radius:6px;font-family:monospace;white-space:pre-wrap}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left}
+  label{display:block;margin-top:8px}
+  input,select,textarea{width:100%;padding:8px;margin-top:4px}
+  button{padding:8px 14px;margin-top:8px}
+  .muted{color:#666;font-size:12px}
+</style>
 </head>
 <body>
-    <h1>Ввод в оборот молока</h1>
+<h1>Производственный сервис</h1>
 
-    <form method="POST" action="/" enctype="multipart/form-data">
-        <label>Загрузите JSON файл:</label>
-        <input type="file" name="json_file" required>
-        <button type="submit">Загрузить</button>
+{% with messages=get_flashed_messages() %}
+  {% for m in messages %}<div class="msg">{{ m }}</div>{% endfor %}
+{% endwith %}
+
+<div class="tabs">
+  <button class="tabbtn active" data-target="#tab-milk">🧾 Ввод в оборот</button>
+  <button class="tabbtn" data-target="#tab-move">🔄 Сравнение и перемещение</button>
+</div>
+
+<!-- ВКЛАДКА 1: МОЛОЧНЫЙ JSON -->
+<div id="tab-milk" class="tab active">
+  <h2>Ввод в оборот (генерация XML/CSV из JSON)</h2>
+
+  <form method="POST" action="{{ url_for('milk_upload_json') }}" enctype="multipart/form-data">
+    <label>Загрузите JSON:</label>
+    <input type="file" name="json_file" required>
+    <button type="submit">Загрузить</button>
+  </form>
+
+  {% if state.milk_parsed %}
+    <h3>Распарсенные данные</h3>
+    <div class="logs">{{ state.milk_parsed | tojson(indent=2, ensure_ascii=False) }}</div>
+
+    <h3>Коды и выгрузка</h3>
+    <form method="POST" action="{{ url_for('download_csv') }}">
+      <label>Имя файла (CSV):</label>
+      <input type="text" name="file_name" value="codes">
+      <label>Коды (один на строку, можно c &lt;GS&gt;):</label>
+      <textarea name="codes" rows="8"></textarea>
+      <button type="submit">Скачать CSV</button>
     </form>
 
-    {% if data %}
-    <hr>
-    <h2>Распарсенные данные:</h2>
-
-    <div class="field">
-        <label>Producer INN:</label>
-        <div class="data-field">{{ data.producer_inn }}</div>
-    </div>
-
-    <div class="field">
-        <label>Owner INN:</label>
-        <div class="data-field">{{ data.owner_inn }}</div>
-    </div>
-
-    <div class="field">
-        <label>Production Date:</label>
-        <div class="data-field">{{ data.production_date }}</div>
-    </div>
-
-    <div class="field">
-        <label>Production Type:</label>
-        <div class="data-field">{{ data.production_type }}</div>
-    </div>
-
-    <div class="field">
-        <label>TNVED Code (первого продукта, если есть):</label>
-        <div class="data-field">
-            {% if data.products %}
-                {{ data.products[0].tnved_code }}
-            {% else %}
-                Не найдено
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="field">
-        <label>Certificate Number (первого продукта, если есть):</label>
-        <div class="data-field">
-            {% if data.products %}
-                {{ data.products[0].certificate_number }}
-            {% else %}
-                Не найдено
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="field">
-        <label>Certificate Date (первого продукта, если есть):</label>
-        <div class="data-field">
-            {% if data.products %}
-                {{ data.products[0].certificate_date }}
-            {% else %}
-                Не найдено
-            {% endif %}
-        </div>
-    </div>
-
-    <hr>
-    <h2>Введите коды</h2>
-    <form method="POST" action="/download_csv">
-        <div class="field">
-            <label>Имя файла (без расширения):</label>
-            <input type="text" name="filename" value="codes" required>
-        </div>
-
-        <div class="field">
-            <label>Коды (по одному на строке, с <GS> если нужно):</label>
-            <textarea name="codes" rows="10"></textarea>
-        </div>
-
-        <button type="submit">Скачать CSV</button>
+    <form method="POST" action="{{ url_for('download_xml') }}">
+      <input type="hidden" name="file_name" value="file">
+      <label>Коды (для XML, можно те же):</label>
+      <textarea name="codes" rows="8"></textarea>
+      <button type="submit">Скачать XML</button>
     </form>
+  {% endif %}
+</div>
 
-    <form method="POST" action="/download_xml">
-        <input type="hidden" name="codes" value="">
-        <input type="hidden" name="filename" value="">
-        <button type="submit" onclick="
-            this.form.codes.value = document.querySelector('textarea[name=codes]').value;
-            this.form.filename.value = document.querySelector('input[name=filename]').value;
-        ">Скачать XML</button>
-    </form>
+<!-- ВКЛАДКА 2: ПЕРЕМЕЩЕНИЕ -->
+<div id="tab-move" class="tab">
+  <h2>Сравнение XML и запуск процесса</h2>
+
+  <form method="POST" action="{{ url_for('upload_xmls') }}" enctype="multipart/form-data">
+    <label>XML #1:</label>
+    <input type="file" name="xml1" accept=".xml" required>
+    <label>XML #2:</label>
+    <input type="file" name="xml2" accept=".xml" required>
+    <button type="submit">Сравнить</button>
+  </form>
+
+  {% if state.xml1_name and state.xml2_name %}
+    <p>Загружено: <b>{{ state.xml1_name }}</b> и <b>{{ state.xml2_name }}</b></p>
+
+    {% if state.codes_equal %}
+      <div class="msg">✅ Коды совпадают. Найдено doc_num=<b>{{ state.doc_num_xml }}</b>, doc_date=<b>{{ state.doc_date_xml }}</b></div>
+
+      <h3>Параметры запуска</h3>
+      <form method="POST" action="{{ url_for('run_flow_route') }}">
+        <label>МД первого объекта:</label><input type="text" name="md1" required>
+        <span class="muted">например, 27 (логин/пароль возьмутся из varables/accounts.json)</span>
+
+        <label>МД второго объекта:</label><input type="text" name="md2" required>
+
+        <label>Номер документа (invoice):</label>
+        <input type="text" name="invoice" value="{{ state.doc_num_xml or '' }}" required>
+
+        <label>Дата перемещения (YYYY-MM-DD):</label>
+        <input type="date" name="transfer_date" value="{{ state.doc_date_xml or '' }}" required>
+
+        <label>Компания:</label>
+        <select name="vendor">
+          <option value="SOTEX" selected>SOTEX</option>
+          <option value="RAFARMA">RAFARMA</option>
+        </select>
+
+        {% if state.debug_mode %}
+          <div class="muted">Debug-режим включён: перед каждым запросом появится окно подтверждения и можно отредактировать JSON.</div>
+        {% endif %}
+
+        <button type="submit">Запустить процесс</button>
+      </form>
+    {% else %}
+      <div class="msg err">❌ Коды различаются</div>
+      {% if state.only_in_first and state.only_in_first|length %}
+        <p><b>Только в первом XML:</b></p><div class="logs">{{ state.only_in_first | join('\n') }}</div>
+      {% endif %}
+      {% if state.only_in_second and state.only_in_second|length %}
+        <p><b>Только во втором XML:</b></p><div class="logs">{{ state.only_in_second | join('\n') }}</div>
+      {% endif %}
     {% endif %}
+  {% endif %}
+
+  {% if state.flow_logs and state.flow_logs|length %}
+    <h3>Журнал выполнения</h3>
+    <a href="{{ url_for('clear_logs') }}"><button>Очистить лог</button></a>
+    <table>
+      <tr><th>Время</th><th>Шаг</th><th>Действие</th><th>Статус</th><th>Сообщение</th></tr>
+      {% for l in state.flow_logs %}
+        <tr>
+          <td>{{ l.time }}</td>
+          <td>{{ l.step }}</td>
+          <td>{{ l.action }}</td>
+          <td>{{ l.status }}</td>
+          <td>{{ l.message }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+</div>
+
+<script>
+  document.querySelectorAll('.tabbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelector(btn.dataset.target).classList.add('active');
+    });
+  });
+</script>
+<script>
+  // --- сохранение активной вкладки между перезагрузками ---
+  const tabButtons = document.querySelectorAll('.tabbtn');
+  const tabs = document.querySelectorAll('.tab');
+
+  // восстановить при загрузке
+  const savedTab = sessionStorage.getItem('activeTab');
+  if (savedTab) {
+    tabButtons.forEach(b => b.classList.remove('active'));
+    tabs.forEach(t => t.classList.remove('active'));
+    document.querySelector(`.tabbtn[data-target="${savedTab}"]`)?.classList.add('active');
+    document.querySelector(savedTab)?.classList.add('active');
+  }
+
+  // при переключении сохраняем
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabButtons.forEach(b => b.classList.remove('active'));
+      tabs.forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.dataset.target;
+      document.querySelector(target).classList.add('active');
+      sessionStorage.setItem('activeTab', target);
+    });
+  });
+</script>
 </body>
 </html>
